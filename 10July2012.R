@@ -4,15 +4,19 @@ library(arm)
 
 dta <- read.csv("icnarc.csv")
 
-vars <- c("diedicu","IMlo","prop.occ.c","mean.daily.transfer",
+vars <- c("diedicu","diedhosp","IMlo","prop.occ.c","mean.daily.transfer",
           "N.dc.perbed","num.consult.perbed","intensivist","meanap2probuk",
           "avyulos","trust.code","yulos","prop.supernum","ratio.bank.total.spend",
           "ratio.agency.total.spend","ratio.ot.total.spend","ratio.ft",
           "N.morning","N.pnoon","N.night","ratio.aux.total.spend",
-          "ave.cost.nurse","ratio.pbq.wte","ahsurv","diedhosp")
+          "ave.cost.nurse","ratio.pbq.wte","ahsurv","N.total.perbed","N.supernum.perbed")
 dta.ss <- subset(dta,select=vars)
 dta <- dta.ss
 
+#dta3 <- read.table("C:\\Users\\dbarron\\Google Drive\\ICNARC\\docmerged.txt")
+
+#nsuper <- dta3$N.supernum.perbed
+#dta <- data.frame(dta,N.supernum.perbed=nsuper)
 #diedhosp <- car::recode(dta$ahsurv, "'Died'=1;'Survived'=0", as.factor.result=FALSE)
 #dta <- data.frame(dta,diedhosp)
 #write.csv(dta,"icnarc.csv")
@@ -25,40 +29,75 @@ ss80 <- dta$yulos >= 8
 
 
 ###########################
-## Baseline models
+## Hypothesis 1
 #############################
 
-display(mod1 <- lmer(diedicu ~  IMlo + prop.occ.c + mean.daily.transfer + 
+display(H1.icu <- lmer(diedicu ~  IMlo + prop.occ.c + mean.daily.transfer + 
+  N.dc.perbed + N.supernum.perbed + num.consult.perbed + intensivist + meanap2probuk + 
+  I(avyulos/100)  + (1|trust.code), data=dta, family=binomial(), na.action=na.omit,            subset=ss8), digits=3)
+
+display(H1.hosp <- lmer(diedhosp ~  IMlo + prop.occ.c + mean.daily.transfer + 
+  N.total.perbed + num.consult.perbed + intensivist + meanap2probuk + 
+  I(avyulos/100)  + (1|trust.code), 
+                     data=dta, family=binomial(), na.action=na.omit, subset=ss8), digits=3)
+
+
+############################
+## Hypothesis 2
+###############################
+
+display(H2.icu <- lmer(diedicu ~  IMlo + prop.occ.c + mean.daily.transfer + 
   N.dc.perbed + num.consult.perbed + intensivist + meanap2probuk + 
   I(avyulos/100)  + (1|trust.code), 
                      data=dta, family=binomial(), na.action=na.omit, subset=ss8), digits=3)
 
-## Add interaction between num. nurses and IMlo
-mod1a <- update(mod1, .~. + IMlo*N.dc.perbed)
-display(mod1a, digits=3)
-summary(mod1a,digits=3,correlation=FALSE)
-
-mod1b <- update(mod1a, . ~ . + IMlo*num.consult.perbed)
-summary(mod1b)
-
-
-##################################
-## Hospital mortality
-##################################
-
-
-display(mod2 <- lmer(diedhosp ~  IMlo + prop.occ.c + mean.daily.transfer + 
+display(H2.hosp <- lmer(diedhosp ~  IMlo + prop.occ.c + mean.daily.transfer + 
   N.dc.perbed + num.consult.perbed + intensivist + meanap2probuk + 
   I(avyulos/100)  + (1|trust.code), 
-                     data=dta, family=binomial(), na.action=na.omit, subset=ss8), digits=3)
+                       data=dta, family=binomial(), na.action=na.omit, subset=ss8), digits=3)
 
+
+####################################
+## Hypothesis 3
+##################################
+
+H3.icu <- update(H2.icu, .~. + I(N.dc.perbed^2))
+summary(H3.icu)
+
+H3.hosp <- update(H2.hosp, .~. + I(N.dc.perbed^2))
+summary(H3.hosp)
+
+
+#################################
+## Hypothesis 4
+########################
 ## Add interaction between num. nurses and IMlo
-mod2a <- update(mod2, .~. + IMlo*N.dc.perbed)
-display(mod2a, digits=3)
-summary(mod2a,digits=3)
+H4.icu <- update(H2.icu, .~. + IMlo*N.dc.perbed)
+summary(H4.icu, digits=3)
 
-mod2b <- update(mod2a, . ~ . + IMlo*num.consult.perbed)
-summary(mod2b)
+H4.hosp <- update(H2.hosp, .~. + IMlo*N.dc.perbed)
+summary(H4.hosp, digits=3)
+
+
+#######################################
+## Hypothesis 5
+###############################
+# ave.cost.nurse
+
+H5.icu <- update(H4.icu, .~. + ave.cost.nurse)
+summary(H5.icu)
+
+H5.hosp <- update(H4.hosp, .~. + ave.cost.nurse)
+summary(H5.hosp)
+
+# post-basic quals
+H5a.icu <- update(H4.icu, .~. + ratio.pbq.wte)
+summary(H5a.icu)
+
+H5a.hosp <- update(H4.hosp, .~. + ratio.pbq.wte)
+summary(H5a.hosp,correlation=FALSE)
+
+
 
 ############################
 ## Plots

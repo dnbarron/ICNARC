@@ -9,9 +9,13 @@ vars <- c("diedicu","IMlo","prop.occ.c","mean.daily.transfer",
           "avyulos","trust.code","yulos","prop.supernum","ratio.bank.total.spend",
           "ratio.agency.total.spend","ratio.ot.total.spend","ratio.ft",
           "N.morning","N.pnoon","N.night","ratio.aux.total.spend",
-          "ave.cost.nurse","ratio.pbq.wte")
+          "ave.cost.nurse","ratio.pbq.wte","ahsurv")
 dta.ss <- subset(dta,select=vars)
 dta <- dta.ss
+
+#diedhosp <- car::recode(dta$ahsurv, "'Died'=1;'Survived'=0", as.factor.result=FALSE)
+#dta <- data.frame(dta,diedhosp)
+#write.csv(dta,"icnarc.csv")
 
 ss0 <- dta$yulos>0
 ss <- dta$yulos>0 & dta$trust.code != 7625
@@ -32,7 +36,10 @@ display(mod1 <- lmer(diedicu ~  IMlo + prop.occ.c + mean.daily.transfer +
 ## Add interaction between num. nurses and IMlo
 mod1a <- update(mod1, .~. + IMlo*N.dc.perbed)
 display(mod1a, digits=3)
+summary(mod1a,digits=3,correlation=FALSE)
 
+mod1b <- update(mod1a, . ~ . + IMlo*num.consult.perbed)
+summary(mod1b)
 ####
 ## Direct care v. supernumary
 #####
@@ -305,3 +312,104 @@ display(mod5bNHigh)  # .00 (.02)
 display(mod6NHigh)  # -.40 (.62)
 display(mod7NHigh)  # .01 (.01) 
 display(mod8NHigh)  # -.03 (.13)
+
+
+##########################################################
+### Final table
+######################################################
+
+display(mod1 <- lmer(diedicu ~  IMlo + prop.occ.c + mean.daily.transfer + 
+  N.total.perbed + num.consult.perbed + intensivist + meanap2probuk + 
+  I(avyulos/100)  + (1|trust.code), 
+                     data=dta, family=binomial(), subset=ss8), digits=3)
+
+mod2 <- update(mod1, .~. - N.total.perbed + N.dc.perbed)
+mod3 <- update(mod2, .~. + N.Supernum)
+mod3.a <- update(mod2, .~. + prop.supernum)
+mod4 <- update(mod2, .~. + ratio.aux.total.spend)
+mod5 <- update(mod2, .~. + ratio.pbq.wte)
+mod6 <- update(mod2, .~. + ave.cost.nurse)
+display(mod2)
+display(mod3)
+display(mod3.a)
+display(mod4)
+display(mod5)
+display(mod6)
+
+mod3N <- update(mod3, .~. - N.dc.perbed)
+mod3.aN <- update(mod3.a, .~. - N.dc.perbed)
+mod4N <- update(mod4, .~. - N.dc.perbed)
+mod5N <- update(mod5, .~. - N.dc.perbed)
+mod6N <- update(mod6, .~. - N.dc.perbed)
+
+display(mod3N)
+display(mod4N)
+display(mod5N)
+display(mod6N)
+
+library(effects)
+ae <- effect('N.dc.perbed',mod2)
+plot(ae,xlab="Number of direct care nurses per bed",ylab="Probability of mortality",main="")
+b <- fixef(mod2)
+lp.hat <- b[1] + b[2]*1.51 + b[3]*.833 + b[4]*.058 + b[5]*.4 + b[6] + b[7]*.289 + b[8]*1
+
+lp.hat <- lp.hat+b[9]*seq(.2,8.4,by=.1)
+p.hat <- invlogit(lp.hat)
+p.dta <- data.frame(N.dc.perbed=seq(.2,8.4,by=.1),Prob=p.hat)
+library(ggplot2)
+ggplot(p.dta, aes(x=N.dc.perbed,y=Prob)) + geom_line()  + 
+  labs(x="Number of direct care nurses per bed",y="Probability of mortality")
+
+xtable.mer <- function(x, caption=NULL, label=NULL, align=NULL, digits=NULL,
+                    display=NULL)
+{
+  xx <- summary(x)
+  x <- data.frame(xx@coefs, check.names = FALSE)
+  class(x) <- c("xtable", "data.frame")
+  caption(x) <- caption
+  label(x) <- label
+  align(x) <- switch(1 + is.null(align), align, c("r", "r", 
+                                                  "r", "r", "r"))
+  digits(x) <- switch(1 + is.null(digits), digits, c(0, 4, 
+                                                     4, 2, 4))
+  display(x) <- switch(1 + is.null(display), display, c("s", 
+                                                        "f", "f", "f", "f"))
+  return(x)
+}
+
+                    
+############################
+## Plots
+##########################################
+library(plyr)
+library(ggplot2)
+                    
+death.dta <- ddply(dta,.(trust.code), summarize,
+      num.patients.icu=sum(table(diedicu)),
+      num.deaths.icu=sum(diedicu, na.rm=TRUE),
+      num.patients.hosp=sum(table(diedhosp)),
+      num.deaths.hosp=sum(diedhosp, na.rm=TRUE))
+prop.died.icu <- with(death.dta, num.deaths.icu/num.patients.icu)
+ix <- order(prop.died.icu)
+
+prop.died.hosp <- with(death.dta, num.deaths.hosp/num.patients.hosp)
+death.dta <- data.frame(death.dta,prop.died.icu,prop.died.hosp)[ix,]
+                
+icu <- 1:length(prop.died)                    
+death.dta <- data.frame(death.dta,icu)                    
+                    
+ggplot(death.dta[ix,], aes(x=icu,y=prop.died.icu)) + geom_point(colour="blue",shape=15) + labs(list(x="",y="Proportion died")) + scale_x_continuous(labels=NULL) + opts(axis.ticks = theme_blank())
+
+
+ggplot(dta,aes(x=IMlo)) + geom_density() + geom_hline(aes(yintercept=0),colour='white') + xlim(c(-7,7)) + ylab("Density") + xlab("IM log odds")
+
+staff.dta <- ddply(dta,.(trust.code),summarize,
+                   num.dc=mean(N.dc.perbed,na.rm=TRUE),
+                   num.consult=mean(num.consult.perbed,na.rm=TRUE))
+ix <- order(staff.dta$num.dc)
+staff.dta <- staff.dta[ix,]
+staff.dta$icu <- 1:n
+staff.dta2 <- data.frame(Number=c(staff.dta$num.dc,staff.dta$num.consult))
+staff.dta2$Staff <- gl(2,n,labels=c("Nurses","Consultants"))
+staff.dta2$ICU <- rep(1:n,2)
+ggplot(staff.dta2,aes(x=ICU,y=Number,fill=Staff)) + geom_bar(stat='Identity',position='dodge') + ylim(c(0,8))
